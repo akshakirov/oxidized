@@ -1,0 +1,33 @@
+---
+username: net-equipment-readonly-user
+password: VeryStrongPassw0rd
+
+interval: 1800 # Check every 30 minutes
+
+use_syslog: false
+
+debug: false
+
+extensions:
+  oxidized-web:
+    load: true
+    listen: 0.0.0.0
+    port: 8888
+
+source:
+  default: csv
+  csv:
+    file: /home/oxidized/.config/oxidized/router.db
+    delimiter: !ruby/regexp /:/
+    map:
+      name: 0
+      ip: 1
+      model: 2
+    vars_map:
+      ssh_port: 3
+output:
+  default: git
+  git:
+    user: Oxidized
+    email: oxidized@example.com
+    repo: /home/oxidized/.config/oxidized/networks.git

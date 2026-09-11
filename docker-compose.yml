@@ -1,0 +1,105 @@
+---
+services:
+  oxidized:
+    restart: always
+    image: docker.io/oxidized/oxidized:latest
+    container_name: oxidized
+    expose:
+      - 8888
+    environment:
+      CONFIG_RELOAD_INTERVAL: 400
+    volumes:
+       - ./config/:/home/oxidized/.config/oxidized/
+
+  certbot-init:
+    image: certbot/dns-cloudflare:latest
+    container_name: certbot-init
+    restart: "no"
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./secrets/cloudflare.ini:/etc/cloudflare.ini:ro
+    environment:
+      DOMAIN: oxidized.yourdomain.com
+      EMAIL: noc@yourdomain.com
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+
+        if [ ! -f "/etc/letsencrypt/live/$${DOMAIN}/fullchain.pem" ]; then
+          certbot certonly \
+            --dns-cloudflare \
+            --dns-cloudflare-credentials /etc/cloudflare.ini \
+            --dns-cloudflare-propagation-seconds 30 \
+            --non-interactive \
+            --agree-tos \
+            --email "$${EMAIL}" \
+            -d "$${DOMAIN}"
+        else
+          echo "Certificate for $${DOMAIN} already exists"
+        fi
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx
+    restart: always
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./letsencrypt:/etc/letsencrypt:ro
+      - certbot-reload:/var/run/certbot-reload
+    depends_on:
+      certbot-init:
+        condition: service_completed_successfully
+      oxidized:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -c
+      - |
+        (
+          while true; do
+            if [ -f /var/run/certbot-reload/reload ]; then
+              rm -f /var/run/certbot-reload/reload
+              echo "Certificate renewed, reloading nginx..."
+              nginx -s reload
+            fi
+            sleep 10
+          done
+        ) &
+        exec nginx -g 'daemon off;'
+
+  certbot:
+    image: certbot/dns-cloudflare:latest
+    container_name: certbot
+    restart: always
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./secrets/cloudflare.ini:/etc/cloudflare.ini:ro
+      - certbot-reload:/var/run/certbot-reload
+    depends_on:
+      certbot-init:
+        condition: service_completed_successfully
+      nginx:
+        condition: service_started
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        trap exit TERM INT
+
+        while true; do
+          certbot renew \
+            --dns-cloudflare \
+            --dns-cloudflare-credentials /etc/cloudflare.ini \
+            --deploy-hook "touch /var/run/certbot-reload/reload"
+
+          sleep 12h &
+          wait $${!}
+        done
+
+volumes:
+  certbot-reload:
