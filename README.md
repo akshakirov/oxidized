@@ -18,3 +18,10 @@ Change yourdomain.com to your domain
 Set your cloudflare token in secrets/cloudflare.ini
 
 and start it with ```docker compose up -d```
+
+
+Don't forget to enter a creditenials in config/routers.db to match your equipment
+```
+username: net-equipment-readonly-user
+password: VeryStrongPassw0rd
+```
